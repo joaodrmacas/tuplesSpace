@@ -10,6 +10,7 @@ class NamingServer:
         self.lock = RWLock()
         self.debug_flag = debug
 
+
     def __register_service(self, service_name):
         '''This is meant to be a private method! Do not call it outside of the class in order to assure thread safety'''
         self.debug(f"Registering service with name: \"{service_name}\" on name server")
@@ -27,8 +28,18 @@ class NamingServer:
 
     def register_server(self, service_name, server_host, server_port, server_qualifier):
         self.lock.acquire_write()
+        reg_result = -1
         try:
-            self.debug(f"Creating server entry for server \"{server_host}:{server_port}\"")
+            for service in self.service_map.values():
+                for server in service.servers:
+                    if server.qualifier == server_qualifier:
+                        self.debug(f"Server with qualifier \"{server_qualifier}\" already exists.")
+                        return -1
+                    elif server.host == server_host and server.port == server_port:
+                        self.debug(f"Server with host \"{server_qualifier}\" and port \"{server_port}\" already exists.")
+                        return -1
+
+
             server = ServerEntry(server_host, server_port, server_qualifier)
             self.debug(f"Successfully created server entry for server \"{str(server)}\"")
             reg_result = self.__register_service(service_name)
@@ -40,19 +51,19 @@ class NamingServer:
         finally:
             self.lock.release_write()
 
-        self.debug(f"Failed to register server \"{str(server)}\"") if reg_result == -1 \
+            self.debug(f"Failed to register server \"{str(server)}\"") if reg_result == -1 \
             else self.debug(f"Successfully registered server \"{server_host}:{server_port}\"")
-        
+
         return reg_result
 
-    def lookup(self, service_name, server_qualifier):
+    def lookup(self, service_name, server_qualifier=""):
         self.lock.acquire_read()
         try:
-            self.debug(f"Looking for servers with the qualifier \"{server_qualifier}\" within the service \"{service_name}\"")
+            self.debug(f"Looking for servers within the service \"{service_name}\"")
             lst = []
             if service_name in self.service_map:
                 for server in self.service_map[service_name].servers:
-                    if server.qualifier == server_qualifier:
+                    if server_qualifier == "" or server.qualifier == server_qualifier:
                         lst.append(server.host + ":" + server.port)
             self.debug(f"Found servers: {[str(server) for server in lst]}")
         finally:

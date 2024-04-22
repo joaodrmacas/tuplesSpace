@@ -24,7 +24,7 @@ public class ServerService {
 		if (DEBUG_FLAG)
 			System.err.println(debugMessage);
 	}
-    
+
 
     public ServerService(){
         String target = "localhost:5001";
@@ -35,7 +35,7 @@ public class ServerService {
 
     public void execute(String port, String qualifier) {
         final int p = Integer.parseInt(port);
-        
+
 
         debug("Creating server on port: " + p);
         final BindableService impl = new TupleServerImpl();
@@ -47,11 +47,12 @@ public class ServerService {
             server.start();
         } catch (Exception e) {
             System.out.println("Error starting server: " + e);
+            DNSchannel.shutdown();
             return;
         }
 
         System.out.println("Server started, listening on " + p);
-        
+
         if (!registerOnDNS(p, qualifier)) System.exit(1);
 
         Signal.handle(new Signal("INT"), new SignalHandler() {
@@ -77,7 +78,8 @@ public class ServerService {
             stub.register(RegisterRequest.newBuilder().setServiceName("TupleSpace").setServerAddress(address).setServerQualifier(qualifier).build());
         } catch (StatusRuntimeException e){
             System.out.println("Caught exception description: " + e.getStatus().getDescription());
-            System.out.println("Could not communicate with name server. Make sure the DNS is active");
+            if(!e.getStatus().getDescription().equals("Not possible to register the server"))
+                System.out.println("Could not communicate with name server. Make sure the DNS is active");
             return false;
         }
         return true;

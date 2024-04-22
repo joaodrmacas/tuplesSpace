@@ -5,6 +5,7 @@ import pt.ulisboa.tecnico.tuplespaces.client.grpc.ClientService;
 public class ClientMain {
 
     private static final boolean DEBUG_FLAG = (System.getProperty("debug") != null);
+    static final int numServers = 3;
 
     private static void debug(String debugMessage) {
 		if (DEBUG_FLAG)
@@ -19,7 +20,7 @@ public class ClientMain {
             debug(String.format("arg[%d] = %s%n", i, args[i]));
         }
 
-        if (args.length != 0 || args.length == 1){
+        if (args.length > 1){
             System.err.println("Argument(s) wrong!");
             System.err.println("Usage: mvn exec:java -Dexec.args=debug");
             return;
@@ -32,7 +33,7 @@ public class ClientMain {
         // use default qualifier "A"
         final String qualifier = "A";
 
-        CommandProcessor parser = new CommandProcessor(new ClientService(qualifier));
+        CommandProcessor parser = new CommandProcessor(new ClientService());
         parser.parseInput();
 
     }

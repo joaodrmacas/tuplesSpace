@@ -65,10 +65,8 @@
 				<configuration>
 					<mainClass>${mainclass}</mainClass>
 					<arguments>
-						<argument>${server.host}</argument>
 						<argument>${server.port}</argument>
 						<argument>${server.qual}</argument>
-						<argument>${server.service}</argument>
 					</arguments>
 				</configuration>
 			</plugin>
