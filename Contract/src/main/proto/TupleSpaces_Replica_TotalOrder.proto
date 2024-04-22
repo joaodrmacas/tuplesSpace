@@ -24,8 +24,8 @@ message TakeResponse {
 }
 
 
-message getTupleSpacesStateRequest {}
-message getTupleSpacesStateResponse {
+message GetTupleSpacesStateRequest {}
+message GetTupleSpacesStateResponse {
   repeated string tuple = 1;
 }
 
@@ -33,5 +33,5 @@ service TupleSpacesReplica {
   rpc put(PutRequest) returns (PutResponse);
   rpc read(ReadRequest) returns (ReadResponse);
   rpc take(TakeRequest) returns (TakeResponse);
-  rpc getTupleSpacesState(getTupleSpacesStateRequest) returns (getTupleSpacesStateResponse);
+  rpc getTupleSpacesState(GetTupleSpacesStateRequest) returns (GetTupleSpacesStateResponse);
 }

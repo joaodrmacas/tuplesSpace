@@ -38,27 +38,4 @@ public class ClientMain {
 
     }
 
-    // private static boolean isValidArgs(String[] args) {
-    //     if (args[0].matches("debug")){
-    //         System.setProperty("debug", "true");
-
-    //         if (args.length != 2) {
-    //             System.err.println("Argument(s) missing!");
-    //             System.err.println("Usage: mvn exec:java -Dexec.args=debug <qualifier>");
-    //             return false;
-    //         }
-    
-    //         return 
-    //             (args[1].equals("A") || args[1].equals("B") || args[1].equals("C"));
-    //     }
-
-    //     if (args.length != 1) {
-    //         System.err.println("Argument(s) missing!");
-    //         System.err.println("Usage: mvn exec:java -Dexec.args=<qualifier>");
-    //         return false;
-    //     }
-
-    //     return 
-    //         (args[0].equals("A") || args[0].equals("B") || args[0].equals("C"));
-    //   }
 }

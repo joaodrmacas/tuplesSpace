@@ -68,6 +68,7 @@ public class ServerService {
         } catch (Exception e) {
             System.out.println("Error running server: " + e);
         }
+
     }
 
     private boolean registerOnDNS(int port, String qualifier){
@@ -97,3 +98,5 @@ public class ServerService {
     }
     
 }
+
+

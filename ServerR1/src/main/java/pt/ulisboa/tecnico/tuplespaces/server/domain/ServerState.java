@@ -1,13 +1,14 @@
 package pt.ulisboa.tecnico.tuplespaces.server.domain;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
-import java.util.HashSet;
+import java.util.PriorityQueue;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import pt.ulisboa.tecnico.tuplespaces.server.SeqInt;
 import pt.ulisboa.tecnico.tuplespaces.server.Tuple;
 
 import java.util.concurrent.locks.ReentrantLock;
@@ -21,8 +22,14 @@ public class ServerState {
   private final Lock writeLock = readWriteLock.writeLock();
   private final Lock readLock = readWriteLock.readLock();
 
-  private final Lock condLock = new ReentrantLock();
-  private Condition cond = condLock.newCondition();
+  private final Lock mapLock = new ReentrantLock();
+  private final Lock readReqLock = new ReentrantLock();
+  private Condition readCond = readReqLock.newCondition();
+  private final Lock reqCondLock = new ReentrantLock();
+  private Condition reqCond = reqCondLock.newCondition();
+  private int reqCounter = 1;
+
+  private final HashMap<String, PriorityQueue<SeqInt>> reqMap = new HashMap<>();
 
   private static void debug(String debugMessage) {
     if (DEBUG_FLAG)
@@ -33,11 +40,16 @@ public class ServerState {
     return pattern.substring(0, 1).equals("<") && pattern.endsWith(">");
   }
 
+  private boolean isCurrentRequest(int reqInt){
+    debug("isCurrentRequest - reqInt: " + reqInt + " reqCounter: " + this.reqCounter);
+    return this.reqCounter == reqInt;
+  }
+
   public ServerState() {
     this.tuples = new ArrayList<Tuple>();
   }
 
-  public int put(String tuple) {
+  public int put(String tuple, Integer reqInt) {
     debug("put call - tuple: " + tuple);
 
     if (!verifyPattern(tuple)) {
@@ -45,18 +57,70 @@ public class ServerState {
       return -1;
     }
 
+    reqCondLock.lock();
+    try{
+      while(!isCurrentRequest(reqInt)){
+        reqCond.await();
+      }
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    }
+
+
+    debug("Adding tuple to tuple space..");
     writeLock.lock();
-    condLock.lock();
     try {
       tuples.add(new Tuple(tuple));
-      debug("Wake waiting threads");
-      cond.signalAll();
     } finally {
-      condLock.unlock();
       writeLock.unlock();
     }
 
+    SeqInt queue_lock = getOldestMatchingTake(tuple);
+
+    if (queue_lock != null) {
+      debug("There are take requests waiting..");
+      queue_lock.getIntLock().lock();
+      try {
+        queue_lock.getIntCond().signal();
+      }
+      finally {
+        queue_lock.getIntLock().unlock();
+      }
+    }
+    else {
+      this.reqCounter++;
+    }
+
+    readReqLock.lock();
+    try {
+      readCond.signalAll();
+    } finally {
+      readReqLock.unlock();
+    }
+
+    reqCond.signalAll();
+    reqCondLock.unlock();
+
     return 0;
+  }
+
+  private SeqInt getOldestMatchingTake(String tuple){
+    SeqInt curr_seqInnt = null;
+    mapLock.lock();
+    try {
+      for (String key : reqMap.keySet()) {
+        if (curr_seqInnt==null && tuple.matches(key)){
+          curr_seqInnt = reqMap.get(key).peek();
+        }
+        
+        else if (tuple.matches(key) && reqMap.get(key).peek().getSeqNumber() <= curr_seqInnt.getSeqNumber()){
+          curr_seqInnt = reqMap.get(key).peek();
+        }
+      }
+    } finally {
+      mapLock.unlock();
+    }
+    return curr_seqInnt;
   }
 
   private Tuple getMatchingTuple(String pattern) {
@@ -84,104 +148,115 @@ public class ServerState {
     }
 
     while ((tuple = getMatchingTuple(pattern)) == null) {
-      condLock.lock();
+      readReqLock.lock();
       try {
         debug("Waiting for tuple with pattern: " + pattern);
-        cond.await();
+        readCond.await();
+
       } catch (InterruptedException e) {
         e.printStackTrace();
       } finally {
-        condLock.unlock();
+        readReqLock.unlock();
       }
     }
     return tuple.getTuple();
   }
 
-  public Set<String> takePhase1(String pattern, int clientId) {
-    debug("takePhase1 call - pattern: " + pattern + "clientId: " + clientId);
-
+  
+  public String take(String pattern, Integer reqInt) {
+    Tuple tuple;
+    debug("take call - pattern: " + pattern);
+    
     if (!verifyPattern(pattern)) {
       debug("take call failed - invalid pattern.");
       return null;
     }
 
-    Set<String> matchingTuples = new HashSet<String>();
-    boolean flag = false;
-    while(!flag){
-        readLock.lock();
-        try {
-          for (Tuple tuple : this.tuples) {
-            if (tuple.getTuple().matches(pattern)) {
-              flag = true;
-              if(!tuple.getLockedFlag() && matchingTuples.add(tuple.getTuple())){
-                debug("Locking tuple " + tuple.getTuple() + "with clientId: " + clientId);
-                tuple.lockTuple(clientId);
-              }
-              else if (tuple.getLockedFlag() && tuple.getClientId()!=clientId){
-                debug("Tuple " + tuple.getTuple() + " already locked by diferent client with clientId: " + tuple.getClientId());
-                takePhase1Release(clientId);
-                break;
-              }
-            }
-          }
-        } finally {
-            readLock.unlock();
-          }
-
-        if(!flag){
-          condLock.lock();
-          try {
-            debug("Waiting for tuple with pattern: " + pattern);
-            cond.await();
-          } catch (InterruptedException e) {
-            e.printStackTrace();
-          } finally {
-            condLock.unlock();
-          }
-        }
+    reqCondLock.lock();
+    try{      
+      while(!isCurrentRequest(reqInt)){
+        reqCond.await();
       }
-
-    debug("matchingTuples: " + matchingTuples.toString());
-    return matchingTuples;
-  }
-
-
-  public void takePhase1Release(int clientId) {
-    debug("takePhase1Release call - clientId: " + clientId);
-    for (Tuple tuple : this.tuples) {
-      if (tuple.getLockedFlag() && tuple.getClientId() == clientId) {
-        debug("Unlocking tuple " + tuple.getTuple() + "with clientId: " + clientId);
-        tuple.unlockTuple(clientId);
-      }
+    } catch (InterruptedException e) {
+      e.printStackTrace();
+    } finally {
+      reqCondLock.unlock();
     }
-  }
+    
+    tuple = getMatchingTuple(pattern);
 
+    if (tuple == null) {
+      PriorityQueue<SeqInt> seqIntQueue=null;
+      SeqInt newInt=null;
 
-  public int takePhase2(String tuple, int clientId){
-    Tuple to_remove = null;
-    debug("takePhase2 call - clientId: " + clientId);
+      //Adicionar o pedido à fila caso não haja o padrao no espaco de tuplos
+      mapLock.lock();
+      try {
+        seqIntQueue = reqMap.get(pattern);
+        if (seqIntQueue == null){
+          seqIntQueue = new PriorityQueue<>();
+          reqMap.put(pattern, seqIntQueue);
+        }
+        newInt = new SeqInt(reqInt);
+        seqIntQueue.add(newInt);
+      } finally {
+        mapLock.unlock();
+      }
+
+      //Incrementar counter para o server continuar a processar pedidos
+      reqCondLock.lock();
+      try {
+        debug("Waiting for tuple with pattern: " + pattern);
+        this.reqCounter++;
+      }
+      finally {
+        reqCondLock.unlock();
+      }
+
+      
+      //Esperar pelo sinal do put e retirar do mapa
+      newInt.getIntLock().lock();
+      try{
+        debug("waiting for pattern ["+ pattern + "] to be unlocked");
+        newInt.getIntCond().await();
+        mapLock.lock();
+        try{
+          seqIntQueue.poll();
+          if (seqIntQueue.isEmpty()){
+            reqMap.remove(pattern);
+          }
+          tuple = getMatchingTuple(pattern);
+        } finally {
+          mapLock.unlock();
+        }
+      } catch (Exception e){
+        e.printStackTrace();
+      } 
+      finally {
+        newInt.getIntLock().unlock();
+      }
+      
+    }
+    //Remover o tuple do espaco de tuplos
     writeLock.lock();
     try{
-      for (Tuple tup: this.tuples){
-        if(tup.getClientId()==clientId){
-          tup.unlockTuple(clientId);
-          if (tup.getTuple().equals(tuple)){
-            to_remove = tup;
-          }
-        }
-      }
-      if(to_remove != null){
-        this.tuples.remove(to_remove);
-      }
-      else {
-        return -1;
-      }
+      this.tuples.remove(tuple);
     } finally {
       writeLock.unlock();
     }
 
-    return 0;
+    reqCondLock.lock();
+    try {
+      debug("Waiting for tuple with pattern: " + pattern);
+      this.reqCounter++;
+    }
+    finally {
+      reqCondLock.unlock();
+    }
+    
+    return tuple.getTuple();
   }
+
 
   public List<String> getTupleSpacesState() {
     debug("getTupleSpacesState call");

@@ -21,11 +21,18 @@ public class ResponseCollector<R> {
     }
 
     synchronized public ArrayList<R> getResponses() {
-        return collectedResponses;
+        ArrayList<R> responses = new ArrayList<R>(collectedResponses);
+        return responses;
     }
 
     synchronized public void waitUntilNReceived(int n) throws InterruptedException {
-        while (collectedResponses.size() < n) 
+        while (collectedResponses.size() < n){
             wait();
+        }
+        for (int i=0; i<n; i++){
+            if (collectedResponses.get(i) == null){
+                throw new RuntimeException("ResponseCollector: null response received");
+            }
+        }
     }
 }
